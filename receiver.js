@@ -91,141 +91,141 @@
 // --------------------------------------------------
 // Receiver Context
 // --------------------------------------------------
-'use strict';
+// receiver.js — Fastpix Chromecast Receiver (Widevine)
 
+// --------------------------------------------------
+// Receiver Context
+// --------------------------------------------------
 const context = cast.framework.CastReceiverContext.getInstance();
 const playerManager = context.getPlayerManager();
 
+// --------------------------------------------------
+// Debugging (ENABLE during testing)
+// --------------------------------------------------
 const castDebugLogger = cast.debug.CastDebugLogger.getInstance();
 const LOG_TAG = 'FASTPIX';
+
 castDebugLogger.setEnabled(true);
 castDebugLogger.showDebugLogs(true);
+
 castDebugLogger.loggerLevelByTags = {
   [LOG_TAG]: cast.framework.LoggerLevel.DEBUG,
 };
 
-// ------------------------------------------------
-// Store DRM info from load request for use later
-// ------------------------------------------------
-let currentPlaybackId = null;
-let currentDrmToken = null;
-
-// ------------------------------------------------
-// LOAD interceptor — capture DRM info early
-// ------------------------------------------------
-playerManager.setMessageInterceptor(
-  cast.framework.messages.MessageType.LOAD,
-  (loadRequestData) => {
-    castDebugLogger.info(LOG_TAG, '=== LOAD INTERCEPTED ===');
-    castDebugLogger.info(LOG_TAG, 'URL: ' + loadRequestData.media?.contentId);
-    castDebugLogger.info(LOG_TAG, 'contentType: ' + loadRequestData.media?.contentType);
-    castDebugLogger.info(LOG_TAG, 'customData: ' + JSON.stringify(loadRequestData.media?.customData));
-
-    const fp = loadRequestData.media?.customData?.fastpix;
-    if (fp && fp.playbackId && fp.tokens?.drm) {
-      currentPlaybackId = fp.playbackId;
-      currentDrmToken = fp.tokens.drm;
-      castDebugLogger.info(LOG_TAG, 'Stored → playbackId: ' + currentPlaybackId);
-      castDebugLogger.info(LOG_TAG, 'Stored → drmToken: PRESENT');
-    } else {
-      castDebugLogger.warn(LOG_TAG, 'No DRM data in customData');
-    }
-
-    return loadRequestData;
-  }
-);
-
-// ------------------------------------------------
-// DRM Setup via PlaybackInfoHandler
-// This runs just before playback starts
-// ------------------------------------------------
+// --------------------------------------------------
+// MEDIA PLAYBACK INFO HANDLER (DRM SETUP)
+// --------------------------------------------------
 playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
-  castDebugLogger.info(LOG_TAG, '=== PLAYBACK INFO HANDLER ===');
+  castDebugLogger.info(LOG_TAG, 'MediaPlaybackInfoHandler called');
 
-  const fp = loadRequest.media?.customData?.fastpix;
-  const playbackId = fp?.playbackId || currentPlaybackId;
-  const drmToken   = fp?.tokens?.drm || currentDrmToken;
+  const media = loadRequest.media || {};
+  const customData = media.customData || {};
 
-  if (playbackId && drmToken) {
-    // Set Widevine license URL
+  castDebugLogger.info(LOG_TAG, 'CustomData: ' + JSON.stringify(customData));
+
+  // --------------------------------------------------
+  // Fastpix DRM handling
+  // --------------------------------------------------
+  if (
+    customData.fastpix &&
+    customData.fastpix.playbackId &&
+    customData.fastpix.tokens &&
+    customData.fastpix.tokens.drm
+  ) {
+    const playbackId = customData.fastpix.playbackId;
+    const drmToken = customData.fastpix.tokens.drm;
+
+    castDebugLogger.info(LOG_TAG, 'Playback ID: ' + playbackId);
+    castDebugLogger.info(LOG_TAG, 'DRM Token: Present');
+
+    // ✅ Correct Fastpix Widevine License URL
     playbackConfig.licenseUrl =
       `https://api.fastpix.io/v1/on-demand/drm/license/widevine/${playbackId}?token=${drmToken}`;
 
     playbackConfig.protectionSystem =
       cast.framework.ContentProtection.WIDEVINE;
 
-    castDebugLogger.info(LOG_TAG, 'licenseUrl: ' + playbackConfig.licenseUrl);
+    // --------------------------------------------------
+    // 🔥 CRITICAL FIX — normalize Widevine license request
+    // --------------------------------------------------
+    playbackConfig.licenseRequestHandler = (type, request) => {
+      if (
+        type ===
+        cast.framework.ContentProtectionRequest.RequestType.LICENSE
+      ) {
+        // Fastpix expects raw Widevine bytes
+        request.headers['Content-Type'] =
+          'application/octet-stream';
 
-    // Normalize license request body: base64 string → ArrayBuffer
-    playbackConfig.licenseRequestHandler = (requestInfo) => {
-      castDebugLogger.info(LOG_TAG, 'License request fired, body type: ' + typeof requestInfo.body);
+        // CAF may send base64 string → convert to ArrayBuffer
+        if (request.body && typeof request.body === 'string') {
+          const binary = atob(request.body);
+          const bytes = new Uint8Array(binary.length);
 
-      requestInfo.headers['Content-Type'] = 'application/octet-stream';
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
 
-      if (requestInfo.body && typeof requestInfo.body === 'string') {
-        const binary = atob(requestInfo.body);
-        const bytes  = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
+          request.body = bytes.buffer;
         }
-        requestInfo.body = bytes.buffer;
-        castDebugLogger.info(LOG_TAG, 'Body converted base64 → ArrayBuffer');
+
+        castDebugLogger.info(
+          LOG_TAG,
+          'License request normalized → body=' +
+            Object.prototype.toString.call(request.body)
+        );
       }
 
-      return requestInfo;
+      return request;
     };
 
+    castDebugLogger.info(
+      LOG_TAG,
+      'Widevine license URL set: ' + playbackConfig.licenseUrl
+    );
   } else {
-    castDebugLogger.warn(LOG_TAG, 'No DRM info available — clear content');
+    castDebugLogger.warn(
+      LOG_TAG,
+      'Fastpix DRM data missing in customData'
+    );
   }
 
   return playbackConfig;
 });
 
-// ------------------------------------------------
-// Error logging — most important for debugging
-// ------------------------------------------------
+// --------------------------------------------------
+// ERROR LOGGING
+// --------------------------------------------------
 playerManager.addEventListener(
   cast.framework.events.EventType.ERROR,
   (event) => {
-    castDebugLogger.error(LOG_TAG, '=== ERROR ===');
-    castDebugLogger.error(LOG_TAG, 'detailedErrorCode: ' + event.detailedErrorCode);
-    castDebugLogger.error(LOG_TAG, 'reason: ' + event.reason);
-    castDebugLogger.error(LOG_TAG, 'full: ' + JSON.stringify(event));
+    castDebugLogger.error(
+      LOG_TAG,
+      'Player ERROR: ' + JSON.stringify(event)
+    );
   }
 );
 
+// --------------------------------------------------
+// PLAYBACK STATE LOGS
+// --------------------------------------------------
 playerManager.addEventListener(
   cast.framework.events.EventType.PLAYER_LOAD_COMPLETE,
-  () => castDebugLogger.info(LOG_TAG, 'PLAYER_LOAD_COMPLETE ✅')
+  () => castDebugLogger.info(LOG_TAG, 'Player load complete')
 );
 
 playerManager.addEventListener(
   cast.framework.events.EventType.PLAYING,
-  () => castDebugLogger.info(LOG_TAG, 'PLAYING ✅')
+  () => castDebugLogger.info(LOG_TAG, 'Playback started')
 );
 
-// ------------------------------------------------
-// Start Receiver
-// ------------------------------------------------
+// --------------------------------------------------
+// START RECEIVER
+// --------------------------------------------------
 const options = new cast.framework.CastReceiverOptions();
 options.disableIdleTimeout = false;
-options.maxInactivity = 3600;
+options.maxInactivity = 3600; // 1 hour
+
 context.start(options);
 
-castDebugLogger.info(LOG_TAG, 'Fastpix receiver started ✅');
-```
-
----
-
-## But here's the honest truth
-
-Even with the perfect receiver code, **if the HLS manifest has no `#EXT-X-KEY` Widevine tag, CAF cannot decrypt the segments** — because it doesn't know *which segments are encrypted* or *what key format to use*. The `licenseUrl` alone is not enough; CAF needs the manifest to tell it DRM is present.
-
-You have two options:
-
-**Option A — Ask Fastpix** to enable Widevine signalling in their HLS manifest (add `#EXT-X-KEY` with `KEYFORMAT="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"`). This is a server-side change on their end and is the correct long-term fix.
-
-**Option B — Ask Fastpix** for the DASH `.mpd` URL. Even if they only give you `.m3u8` by default, most CDN providers also serve `.mpd` at the same path — just swap the extension. Try this in your browser right now:
-```
-https://stream.fastpix.io/9a210e43-9ac9-4fa8-9fc4-4a1e4ec0de8e.mpd?token=YOUR_TOKEN
+castDebugLogger.info(LOG_TAG, 'Fastpix Chromecast Receiver started');
