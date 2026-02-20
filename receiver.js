@@ -320,11 +320,11 @@ playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
       'Fastpix DRM token present'
     );
 
-    playbackConfig.licenseUrl =
-      `https://api.fastpix.io/v1/on-demand/drm/license/widevine/${playbackId}?token=${drmToken}`;
+    // playbackConfig.licenseUrl =
+    //   `https://api.fastpix.io/v1/on-demand/drm/license/widevine/${playbackId}?token=${drmToken}`;
 
-    playbackConfig.protectionSystem =
-      cast.framework.ContentProtection.WIDEVINE;
+    // playbackConfig.protectionSystem =
+    //   cast.framework.ContentProtection.WIDEVINE;
 
     // --------------------------------------------------
     // WIDEVINE LICENSE NORMALIZATION (CRITICAL)
