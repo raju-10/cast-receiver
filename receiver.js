@@ -77,37 +77,32 @@
 // /**
 //  * START THE RECEIVER
 //  */
-const options = new cast.framework.CastReceiverOptions();
-options.disableIdleTimeout = false;
-options.maxInactivity = 3600; // 1 hour
+/**
+ * receiver.js — Fastpix Chromecast Receiver (Widevine)
+ * Based on Mux official Chromecast receiver implementation
+ */
 
-context.start(options);
-
-castDebugLogger.info(LOG_TAG, 'Fastpix Cast Receiver started successfully');
-receiver.js — Fastpix Chromecast Receiver (Widevine)
-
---------------------------------------------------
-Receiver Context
---------------------------------------------------
+/* --------------------------------------------------
+ * Receiver Context
+ * -------------------------------------------------- */
 const context = cast.framework.CastReceiverContext.getInstance();
 const playerManager = context.getPlayerManager();
 
-// --------------------------------------------------
-// Debugging (ENABLE during testing)
-// --------------------------------------------------
+/* --------------------------------------------------
+ * Debugging (ENABLE during testing only)
+ * -------------------------------------------------- */
 const castDebugLogger = cast.debug.CastDebugLogger.getInstance();
 const LOG_TAG = 'FASTPIX';
 
 castDebugLogger.setEnabled(true);
 castDebugLogger.showDebugLogs(true);
-
 castDebugLogger.loggerLevelByTags = {
   [LOG_TAG]: cast.framework.LoggerLevel.DEBUG,
 };
 
-// --------------------------------------------------
-// MEDIA PLAYBACK INFO HANDLER (DRM SETUP)
-// --------------------------------------------------
+/* --------------------------------------------------
+ * MEDIA PLAYBACK INFO HANDLER (DRM SETUP)
+ * -------------------------------------------------- */
 playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
   castDebugLogger.info(LOG_TAG, 'MediaPlaybackInfoHandler called');
 
@@ -116,9 +111,9 @@ playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
 
   castDebugLogger.info(LOG_TAG, 'CustomData: ' + JSON.stringify(customData));
 
-  // --------------------------------------------------
-  // Fastpix DRM handling
-  // --------------------------------------------------
+  /* --------------------------------------------------
+   * Fastpix DRM handling
+   * -------------------------------------------------- */
   if (
     customData.fastpix &&
     customData.fastpix.playbackId &&
@@ -131,24 +126,22 @@ playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
     castDebugLogger.info(LOG_TAG, 'Playback ID: ' + playbackId);
     castDebugLogger.info(LOG_TAG, 'DRM Token: Present');
 
-    // ✅ Correct Fastpix Widevine License URL
+    // ✅ Fastpix Widevine License URL
     playbackConfig.licenseUrl =
       `https://api.fastpix.io/v1/on-demand/drm/license/widevine/${playbackId}?token=${drmToken}`;
 
     playbackConfig.protectionSystem =
       cast.framework.ContentProtection.WIDEVINE;
 
-    // --------------------------------------------------
-    // 🔥 CRITICAL FIX — normalize Widevine license request
-    // --------------------------------------------------
+    /* --------------------------------------------------
+     * 🔥 CRITICAL FIX — Normalize Widevine license request
+     * -------------------------------------------------- */
     playbackConfig.licenseRequestHandler = (type, request) => {
       if (
-        type ===
-        cast.framework.ContentProtectionRequest.RequestType.LICENSE
+        type === cast.framework.ContentProtectionRequest.RequestType.LICENSE
       ) {
         // Fastpix expects raw Widevine bytes
-        request.headers['Content-Type'] =
-          'application/octet-stream';
+        request.headers['Content-Type'] = 'application/octet-stream';
 
         // CAF may send base64 string → convert to ArrayBuffer
         if (request.body && typeof request.body === 'string') {
@@ -186,9 +179,9 @@ playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
   return playbackConfig;
 });
 
-// --------------------------------------------------
-// ERROR LOGGING
-// --------------------------------------------------
+/* --------------------------------------------------
+ * ERROR LOGGING
+ * -------------------------------------------------- */
 playerManager.addEventListener(
   cast.framework.events.EventType.ERROR,
   (event) => {
@@ -199,9 +192,9 @@ playerManager.addEventListener(
   }
 );
 
-// --------------------------------------------------
-// PLAYBACK STATE LOGS
-// --------------------------------------------------
+/* --------------------------------------------------
+ * PLAYBACK STATE LOGS
+ * -------------------------------------------------- */
 playerManager.addEventListener(
   cast.framework.events.EventType.PLAYER_LOAD_COMPLETE,
   () => castDebugLogger.info(LOG_TAG, 'Player load complete')
@@ -212,15 +205,15 @@ playerManager.addEventListener(
   () => castDebugLogger.info(LOG_TAG, 'Playback started')
 );
 
-// --------------------------------------------------
-// START RECEIVER
-// --------------------------------------------------
+/* --------------------------------------------------
+ * START RECEIVER
+ * -------------------------------------------------- */
 const options = new cast.framework.CastReceiverOptions();
 options.disableIdleTimeout = false;
 options.maxInactivity = 3600; // 1 hour
 
 context.start(options);
-
-castDebugLogger.info(LOG_TAG, 'Fastpix Chromecast Receiver started');
-
-
+castDebugLogger.info(
+  LOG_TAG,
+  'Fastpix Chromecast Receiver started'
+);
