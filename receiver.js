@@ -2,51 +2,69 @@ const context = cast.framework.CastReceiverContext.getInstance();
 const playerManager = context.getPlayerManager();
 
 /**
- * --------------------------------------------------
- * ON-SCREEN DEBUG LOGGER (VISIBLE ON TV)
- * --------------------------------------------------
+ * ==================================================
+ * MANUAL ON-SCREEN LOG OVERLAY (ALWAYS WORKS)
+ * ==================================================
  */
-const debugLogger = cast.debug.CastDebugLogger.getInstance();
-debugLogger.setEnabled(true);
-debugLogger.showDebugLogs(true);
-debugLogger.setDefaultLevel(cast.framework.LoggerLevel.DEBUG);
+const logDiv = document.createElement('div');
+logDiv.style.position = 'fixed';
+logDiv.style.top = '0';
+logDiv.style.left = '0';
+logDiv.style.width = '100%';
+logDiv.style.maxHeight = '50%';
+logDiv.style.overflowY = 'auto';
+logDiv.style.background = 'rgba(0,0,0,0.75)';
+logDiv.style.color = '#00ff00';
+logDiv.style.fontSize = '18px';
+logDiv.style.fontFamily = 'monospace';
+logDiv.style.zIndex = '9999';
+logDiv.style.padding = '10px';
+logDiv.style.boxSizing = 'border-box';
+document.body.appendChild(logDiv);
 
-const LOG_TAG = 'FASTPIX';
-const log = (msg) => {
-  debugLogger.logger(LOG_TAG).info(msg);
-};
+function screenLog(msg) {
+  const line = document.createElement('div');
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logDiv.appendChild(line);
+  logDiv.scrollTop = logDiv.scrollHeight;
+}
 
 // --------------------------------------------------
-// MEDIA PLAYBACK CONFIG (DRM HANDLING – FIXED)
+screenLog('FASTPIX Cast Receiver loaded');
 // --------------------------------------------------
+
+/**
+ * ==================================================
+ * MEDIA PLAYBACK CONFIG (CORRECT DRM HANDLING)
+ * ==================================================
+ */
 playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
-  log('LOAD REQUEST RECEIVED');
+  screenLog('LOAD REQUEST RECEIVED');
 
   const media = loadRequest.media || {};
   const customData = media.customData || {};
 
-  log(`ContentId: ${media.contentId}`);
-  log(`ContentType: ${media.contentType}`);
-  log(`Has customData: ${!!media.customData}`);
+  screenLog(`ContentId: ${media.contentId}`);
+  screenLog(`ContentType: ${media.contentType}`);
+  screenLog(`Has customData: ${!!media.customData}`);
 
   // --------------------------------------------------
-  // Fastpix Widevine DRM (CORRECT WAY)
+  // FASTPIX WIDEVINE DRM (DASH – CORRECT)
   // --------------------------------------------------
   if (
     customData.fastpix &&
     customData.fastpix.playbackId &&
     customData.fastpix.tokens?.drm
   ) {
-    log('FASTPIX DRM DETECTED');
-
     const playbackId = customData.fastpix.playbackId;
     const drmToken = customData.fastpix.tokens.drm;
 
     const licenseUrl =
       `https://api.fastpix.io/v1/on-demand/drm/license/widevine/${playbackId}?token=${drmToken}`;
 
-    log(`PlaybackId: ${playbackId}`);
-    log('Applying Widevine license URL');
+    screenLog('FASTPIX DRM DETECTED');
+    screenLog(`PlaybackId: ${playbackId}`);
+    screenLog('Applying Widevine license URL');
 
     playbackConfig.drm = {
       [cast.framework.ContentProtection.WIDEVINE]: {
@@ -54,54 +72,63 @@ playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
       }
     };
   } else {
-    log('NO DRM DATA — playing clear content');
+    screenLog('NO DRM DATA – CLEAR CONTENT');
   }
 
-  log('PlaybackConfig ready');
+  screenLog('PlaybackConfig READY');
   return playbackConfig;
 });
 
-// --------------------------------------------------
-// PLAYER STATE CHANGES (ON SCREEN)
-// --------------------------------------------------
+/**
+ * ==================================================
+ * PLAYER STATE LOGS (ON SCREEN)
+ * ==================================================
+ */
 playerManager.addEventListener(
   cast.framework.events.EventType.PLAYER_STATE_CHANGED,
   (event) => {
-    log(`PLAYER STATE: ${event.state}`);
+    screenLog(`PLAYER STATE: ${event.state}`);
   }
 );
 
-// --------------------------------------------------
-// MEDIA STATUS (DRM FAILURES SHOW HERE)
-// --------------------------------------------------
+/**
+ * ==================================================
+ * MEDIA STATUS (DRM FAILURES SHOW HERE)
+ * ==================================================
+ */
 playerManager.addEventListener(
   cast.framework.events.EventType.MEDIA_STATUS,
   (event) => {
     const status = event.mediaStatus;
     if (!status) return;
 
-    log(`STATUS: ${status.playerState}`);
+    screenLog(`STATUS: ${status.playerState}`);
+
     if (status.idleReason) {
-      log(`IDLE REASON: ${status.idleReason}`);
+      screenLog(`IDLE REASON: ${status.idleReason}`);
     }
   }
 );
 
-// --------------------------------------------------
-// ERROR HANDLING (ON SCREEN)
-// --------------------------------------------------
+/**
+ * ==================================================
+ * ERROR HANDLING (ON SCREEN)
+ * ==================================================
+ */
 playerManager.addEventListener(
   cast.framework.events.EventType.ERROR,
   (event) => {
-    log('❌ CAST PLAYER ERROR');
-    log(JSON.stringify(event));
+    screenLog('❌ CAST PLAYER ERROR');
+    screenLog(JSON.stringify(event));
   }
 );
 
-// --------------------------------------------------
-// START RECEIVER
-// --------------------------------------------------
-log('Fastpix Cast Receiver starting…');
+/**
+ * ==================================================
+ * START RECEIVER
+ * ==================================================
+ */
+screenLog('Starting Cast Receiver…');
 
 const options = new cast.framework.CastReceiverOptions();
 options.disableIdleTimeout = false;
