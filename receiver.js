@@ -1,27 +1,33 @@
+// Initialize Cast Receiver
 const context = cast.framework.CastReceiverContext.getInstance();
 const playerManager = context.getPlayerManager();
 
 let licenseUrl = null;
 
 
-// ─────────────────────────────────────
-// LOAD interceptor
-// ─────────────────────────────────────
+// ─────────────────────────────
+// LOAD Interceptor
+// ─────────────────────────────
 playerManager.setMessageInterceptor(
   cast.framework.messages.MessageType.LOAD,
-  loadRequest => {
+  (loadRequest) => {
 
-    if (
-      loadRequest.media &&
-      loadRequest.media.customData &&
-      loadRequest.media.customData.licenseUrl
-    ) {
-      licenseUrl = loadRequest.media.customData.licenseUrl;
+    if (!loadRequest.media) {
+      return loadRequest;
     }
 
-    // Required for CMAF HLS
+    console.log("LOAD REQUEST:", loadRequest);
+
+    // Get DRM license URL from sender
+    if (loadRequest.media.customData && loadRequest.media.customData.licenseUrl) {
+      licenseUrl = loadRequest.media.customData.licenseUrl;
+      console.log("License URL:", licenseUrl);
+    }
+
+    // Ensure HLS content type
     loadRequest.media.contentType = "application/x-mpegurl";
 
+    // Required for CMAF HLS
     loadRequest.media.hlsSegmentFormat =
       cast.framework.messages.HlsSegmentFormat.FMP4;
 
@@ -33,30 +39,47 @@ playerManager.setMessageInterceptor(
 );
 
 
-// ─────────────────────────────────────
-// DRM configuration
-// ─────────────────────────────────────
+// ─────────────────────────────
+// Playback / DRM Configuration
+// ─────────────────────────────
 const playbackConfig = new cast.framework.PlaybackConfig();
 
 playbackConfig.protectionSystem =
   cast.framework.ContentProtection.WIDEVINE;
 
-playbackConfig.licenseRequestHandler = request => {
+
+// Modify DRM license request
+playbackConfig.licenseRequestHandler = (requestInfo) => {
 
   if (licenseUrl) {
-    request.url = licenseUrl;
+    requestInfo.url = licenseUrl;
   }
 
-  request.headers = request.headers || {};
-  request.headers["Content-Type"] = "application/octet-stream";
+  requestInfo.headers = requestInfo.headers || {};
 
-  return request;
+  requestInfo.headers["Content-Type"] =
+    "application/octet-stream";
+
+  console.log("License Request:", requestInfo);
+
+  return requestInfo;
 };
 
 
-// ─────────────────────────────────────
-// Start receiver
-// ─────────────────────────────────────
+// Optional: log errors
+playerManager.addEventListener(
+  cast.framework.events.EventType.ERROR,
+  (event) => {
+    console.error("Player Error:", event);
+  }
+);
+
+
+// ─────────────────────────────
+// Start Receiver
+// ─────────────────────────────
 context.start({
   playbackConfig: playbackConfig
 });
+
+console.log("Chromecast Receiver Started");
