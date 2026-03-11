@@ -1,85 +1,44 @@
-// Initialize Cast Receiver
 const context = cast.framework.CastReceiverContext.getInstance();
 const playerManager = context.getPlayerManager();
 
-let licenseUrl = null;
-
-
-// ─────────────────────────────
 // LOAD Interceptor
-// ─────────────────────────────
 playerManager.setMessageInterceptor(
   cast.framework.messages.MessageType.LOAD,
   (loadRequest) => {
+    if (!loadRequest.media) return loadRequest;
 
-    if (!loadRequest.media) {
-      return loadRequest;
-    }
+    console.log("LOAD REQUEST:", JSON.stringify(loadRequest));
 
-    console.log("LOAD REQUEST:", loadRequest);
-
-    // Get DRM license URL from sender
-    if (loadRequest.media.customData && loadRequest.media.customData.licenseUrl) {
-      licenseUrl = loadRequest.media.customData.licenseUrl;
-      console.log("License URL:", licenseUrl);
-    }
-
-    // Ensure HLS content type
     loadRequest.media.contentType = "application/x-mpegurl";
-
-    // Required for CMAF HLS
-    loadRequest.media.hlsSegmentFormat =
-      cast.framework.messages.HlsSegmentFormat.FMP4;
-
-    loadRequest.media.hlsVideoSegmentFormat =
-      cast.framework.messages.HlsVideoSegmentFormat.FMP4;
+    loadRequest.media.hlsSegmentFormat = cast.framework.messages.HlsSegmentFormat.FMP4;
+    loadRequest.media.hlsVideoSegmentFormat = cast.framework.messages.HlsVideoSegmentFormat.FMP4;
 
     return loadRequest;
   }
 );
 
-
-// ─────────────────────────────
-// Playback / DRM Configuration
-// ─────────────────────────────
-const playbackConfig = new cast.framework.PlaybackConfig();
-
-playbackConfig.protectionSystem =
-  cast.framework.ContentProtection.WIDEVINE;
-
-
-// Modify DRM license request
-playbackConfig.licenseRequestHandler = (requestInfo) => {
+// DRM via setMediaPlaybackInfoHandler — correct way to set licenseUrl per-request
+playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
+  const licenseUrl = loadRequest.media?.customData?.licenseUrl;
 
   if (licenseUrl) {
-    requestInfo.url = licenseUrl;
+    console.log("🔐 DRM licenseUrl:", licenseUrl);
+    playbackConfig.licenseUrl = licenseUrl;           // ← correct property
+    playbackConfig.protectionSystem = cast.framework.ContentProtection.WIDEVINE;
+  } else {
+    console.log("🔓 No DRM (trailer)");
   }
 
-  requestInfo.headers = requestInfo.headers || {};
-
-  requestInfo.headers["Content-Type"] =
-    "application/octet-stream";
-
-  console.log("License Request:", requestInfo);
-
-  return requestInfo;
-};
-
-
-// Optional: log errors
-playerManager.addEventListener(
-  cast.framework.events.EventType.ERROR,
-  (event) => {
-    console.error("Player Error:", event);
-  }
-);
-
-
-// ─────────────────────────────
-// Start Receiver
-// ─────────────────────────────
-context.start({
-  playbackConfig: playbackConfig
+  return playbackConfig;
 });
 
-console.log("Chromecast Receiver Started");
+playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
+  console.error("❌ Player Error:", JSON.stringify(event));
+});
+
+playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, () => {
+  console.log("✅ PLAYER_LOAD_COMPLETE");
+});
+
+context.start();   // no global playbackConfig here — it's set per-load above
+console.log("Receiver Started");
