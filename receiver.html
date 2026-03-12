@@ -1,145 +1,49 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8">
-<title>FastPix Chromecast Receiver</title>
-<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-<style>
-html, body {
-  margin:0;
-  padding:0;
-  width:100%;
-  height:100%;
-  background:black;
-}
-cast-media-player{
-  width:100%;
-  height:100%;
-  --progress-color:red;
-  --splash-image:none;
-}
-</style>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 </head>
 <body>
 <cast-media-player></cast-media-player>
+
 <script>
-const context = cast.framework.CastReceiverContext.getInstance();
-const playerManager = context.getPlayerManager();
+const context   = cast.framework.CastReceiverContext.getInstance();
+const playerMgr = context.getPlayerManager();
 
-let licenseUrl = null;
-
-// ── STEP 1: Track playback position for recovery ──────────────────────────
-let lastKnownPosition = 0;
-playerManager.addEventListener(
-  cast.framework.events.EventType.TIME_UPDATE,
-  (event) => {
-    if (event.currentMediaTime) {
-      lastKnownPosition = event.currentMediaTime;
-    }
-  }
-);
-
-// ── LOAD Interceptor ──────────────────────────────────────────────────────
-playerManager.setMessageInterceptor(
+playerMgr.setMessageInterceptor(
   cast.framework.messages.MessageType.LOAD,
-  (loadRequest) => {
-    if (!loadRequest.media) return loadRequest;
+  request => {
 
-    console.log("LOAD REQUEST contentId:", loadRequest.media.contentId);
+    const licenseUrl = request.media?.customData?.licenseUrl;
 
-    // Extract licenseUrl from customData sent by Android
-    if (loadRequest.media.customData && loadRequest.media.customData.licenseUrl) {
-      licenseUrl = loadRequest.media.customData.licenseUrl;
-      console.log("License URL stored:", licenseUrl);
-    } else {
-      console.warn("No licenseUrl in customData!");
+    console.log('[AaoNXT] LOAD intercepted');
+    console.log('[AaoNXT] contentUrl:', request.media?.contentUrl);
+    console.log('[AaoNXT] licenseUrl:', licenseUrl);
+
+    if (!licenseUrl) {
+      console.error('[AaoNXT] No licenseUrl — DRM will fail');
+      return request;
     }
 
-    // ── STEP 2: Remove forced fMP4 — let CAF auto-detect segment format ──
-    // REMOVED: hlsSegmentFormat and hlsVideoSegmentFormat
-    // Forcing FMP4 causes silent decode failure after initial buffer drains
-    // if FastPix actually serves MPEG-TS segments
-    loadRequest.media.contentType = "application/x-mpegurl";
+    // ── Exactly what Media3 DrmConfiguration does, but for CAF ───────────
+    const playbackConfig = new cast.framework.PlaybackConfig();
 
-    return loadRequest;
+    playbackConfig.protectionSystem = cast.framework.ContentProtection.WIDEVINE;
+    playbackConfig.licenseUrl       = licenseUrl;
+
+    // Re-fires on every renewal — same as Media3 handling it automatically
+    playbackConfig.licenseRequestHandler = requestInfo => {
+      requestInfo.url = licenseUrl;
+    };
+
+    context.setPlaybackConfig(playbackConfig);
+
+    // Keep .m3u8 — no URL rewriting, no contentType change
+    return request;
   }
 );
 
-// ── Playback / DRM Configuration ─────────────────────────────────────────
-const playbackConfig = new cast.framework.PlaybackConfig();
-playbackConfig.protectionSystem = cast.framework.ContentProtection.WIDEVINE;
-
-// DRM License Handler — called for initial + every renewal
-playbackConfig.licenseRequestHandler = (requestInfo) => {
-  if (licenseUrl) {
-    requestInfo.url = licenseUrl;
-  } else {
-    console.error("licenseUrl is null during license request!");
-  }
-  requestInfo.headers = requestInfo.headers || {};
-  requestInfo.headers["Content-Type"] = "application/octet-stream";
-  console.log("License request to:", requestInfo.url);
-  return requestInfo;
-};
-
-// ── STEP 4 & 5: Error handler — report to Android + recover on DRM failure
-playerManager.addEventListener(
-  cast.framework.events.EventType.ERROR,
-  (event) => {
-    console.error(
-      "Player Error — code:", event.detailedErrorCode,
-      "| reason:", event.reason || "none"
-    );
-
-    // Send error details back to Android (visible in Logcat via adb)
-    try {
-      context.sendCustomMessage(
-        'urn:x-cast:com.aaonxt.androidtv',
-        undefined,
-        {
-          type: 'PLAYER_ERROR',
-          detailedErrorCode: event.detailedErrorCode || 0,
-          reason: event.reason || '',
-          position: lastKnownPosition
-        }
-      );
-    } catch(e) {
-      console.error("Could not send error message to sender:", e);
-    }
-
-    // DRM error codes:
-    // 321 = LICENSE_REQUEST_NETWORK_FAILURE
-    // 322 = MEDIA_KEYS_NETWORK
-    // 323 = MEDIA_KEYS_REJECTED
-    // 324 = LICENSE_REQUEST_UNKNOWN_FAILURE
-    const drmErrorCodes = [321, 322, 323, 324];
-    if (drmErrorCodes.includes(event.detailedErrorCode)) {
-      console.warn("DRM failure — asking sender to reload with fresh token");
-      try {
-        context.sendCustomMessage(
-          'urn:x-cast:com.aaonxt.androidtv',
-          undefined,
-          {
-            type: 'DRM_EXPIRED',
-            position: lastKnownPosition
-          }
-        );
-      } catch(e) {
-        console.error("Could not send DRM_EXPIRED message:", e);
-      }
-    }
-  }
-);
-
-// ── STEP 3: Start receiver with maxInactivity to prevent idle disconnect ─
-// Default is 300 seconds (5 min) — this is likely causing your disconnects
-// Setting to 3600 (1 hour) keeps session alive even if phone screen locks
-context.start({
-  playbackConfig: playbackConfig,
-  maxInactivity: 3600
-});
-
-console.log("Receiver started — maxInactivity=3600");
+context.start();
 </script>
 </body>
 </html>
